@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>티처블 머신 모델 데모</title>
+  <!-- TensorFlow.js 라이브러리 로드 -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <!-- Teachable Machine 라이브러리 로드 -->
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      text-align: center;
+      background-color: #f9f9f9;
+    }
+    
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+    }
+    
+    p {
+      color: #666;
+      margin-bottom: 20px;
+    }
+    
+    button, label.upload-button {
+      padding: 12px 20px;
+      margin: 10px;
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-block;
+      font-weight: bold;
+      transition: background-color 0.3s;
+    }
+    
+    button:hover, label.upload-button:hover {
+      background-color: #3367d6;
+    }
+    
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    
+    input[type="file"] {
+      display: none;
+    }
+    
+    #image-container {
+      margin: 20px auto;
+      max-width: 400px;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    #image-preview {
+      max-width: 100%;
+      max-height: 400px;
+      display: none;
+    }
+    
+    #label-container {
+      margin: 20px auto;
+      max-width: 600px;
+      background-color: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    .prediction-bar {
+      display: flex;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    
+    .label-name {
+      width: 130px;
+      text-align: right;
+      margin-right: 15px;
+      font-weight: bold;
+      color: #333;
+    }
+    
+    .progress-container {
+      flex-grow: 1;
+      background-color: #f1f1f1;
+      border-radius: 8px;
+      height: 24px;
+      overflow: hidden;
+    }
+    
+    .progress-bar {
+      height: 100%;
+      background-color: #4285f4;
+      border-radius: 8px;
+      transition: width 0.5s ease;
+    }
+    
+    .probability {
+      width: 60px;
+      text-align: left;
+      margin-left: 15px;
+      font-weight: bold;
+    }
+    
+    #status-message {
+      margin: 15px 0;
+      color: #666;
+      font-style: italic;
+      padding: 8px;
+      border-radius: 4px;
+      background-color: #e8f0fe;
+      display: inline-block;
+    }
+    
+    #prediction-results {
+      display: none;
+      margin-top: 30px;
+    }
+    
+    .highlight {
+      background-color: #4caf50;
+    }
+    
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 2s linear infinite;
+      margin: 20px auto;
+      display: none;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    #error-details {
+      color: #d32f2f;
+      margin-top: 10px;
+      font-size: 14px;
+      display: none;
+      text-align: left;
+      background-color: #ffebee;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    
+    #debug-section {
+      margin-top: 30px;
+      padding: 15px;
+      background-color: #f5f5f5;
+      border-radius: 8px;
+      text-align: left;
+      display: none;
+    }
+    
+    .debug-button {
+      background-color: #ff9800;
+    }
+  </style>
+</head>
+<body>
+  <h1>티처블 머신 모델 데모</h1>
+  <p>이미지를 업로드하고 분석 결과를 확인하세요.</p>
+  
+  <div id="loader" class="loader"></div>
+  <div id="status-message">모델을 로딩 중입니다. 잠시만 기다려주세요...</div>
+  <div id="error-details"></div>
+  
+  <div>
+    <label for="file-upload" class="upload-button">이미지 선택</label>
+    <input type="file" id="file-upload" accept="image/*" onchange="previewImage(this)">
+  </div>
+  
+  <div id="image-container">
+    <img id="image-preview" src="#" alt="이미지 미리보기">
+  </div>
+  
+  <button type="button" id="predict-button" onclick="runPrediction()" disabled>이미지 분석하기</button>
+  
+  <div id="prediction-results">
+    <h2>분석 결과</h2>
+    <div id="label-container"></div>
+  </div>
+  
+  <!-- 디버그 섹션 (개발 중에만 표시) -->
+  <div id="debug-section">
+    <h3>디버그 정보</h3>
+    <p>모델 경로: <span id="model-path"></span></p>
+    <p>오류 정보: <span id="error-log"></span></p>
+    <button onclick="toggleUseHosted()" class="debug-button">호스팅 모델 사용 전환</button>
+  </div>
+  
+  <script>
+    // 디버그 모드 (개발 중에만 true로 설정)
+    const DEBUG_MODE = false;
+    
+    // GitHub 저장소의 모델 파일 경로
+    let modelURL = "./my_model/model.json";
+    let metadataURL = "./my_model/metadata.json";
+    
+    // 백업용 티처블 머신 호스팅 URL (필요시 사용)
+    const HOSTED_MODEL_URL = "https://teachablemachine.withgoogle.com/models/Vfh_425nY/";
+    
+    // 호스팅 모델 사용 여부
+    let useHostedModel = false;
+    
+    // 디버그 모드 초기화
+    if (DEBUG_MODE) {
+      document.getElementById("debug-section").style.display = "block";
+      document.getElementById("model-path").textContent = modelURL;
+    }
+    
+    // 호스팅 모델 사용 전환 함수 (디버그용)
+    function toggleUseHosted() {
+      useHostedModel = !useHostedModel;
+      if (useHostedModel) {
+        modelURL = HOSTED_MODEL_URL + "model.json";
+        metadataURL = HOSTED_MODEL_URL + "metadata.json";
+        document.getElementById("model-path").textContent = HOSTED_MODEL_URL;
+      } else {
+        modelURL = "./my_model/model.json";
+        metadataURL = "./my_model/metadata.json";
+        document.getElementById("model-path").textContent = modelURL;
+      }
+      
+      // 모델 다시 로드
+      initModel();
+    }
+    
+    let model, labelContainer, maxPredictions;
+    let isModelLoaded = false;
+    
+    // 페이지 로드 시 모델 초기화
+    window.addEventListener('DOMContentLoaded', initModel);
+    
+    // 모델 초기화 함수
+    async function initModel() {
+      document.getElementById("loader").style.display = "block";
+      document.getElementById("error-details").style.display = "none";
+      document.getElementById("prediction-results").style.display = "none";
+      updateStatus("모델을 로딩 중입니다. 잠시만 기다려주세요...");
+      
+      try {
+        // 모델 로드
+        model = await tmImage.load(modelURL, metadataURL);
+        maxPredictions = model.getTotalClasses();
+        isModelLoaded = true;
+        
+        // 예측 결과를 표시할 레이블 컨테이너 생성
+        labelContainer = document.getElementById("label-container");
+        labelContainer.innerHTML = "";
+        
+        for (let i = 0; i < maxPredictions; i++) {
+          const predictionBar = document.createElement("div");
+          predictionBar.className = "prediction-bar";
+          predictionBar.id = "prediction-" + i;
+          
+          const labelName = document.createElement("div");
+          labelName.className = "label-name";
+          labelName.textContent = model.getClassLabels()[i];
+          
+          const progressContainer = document.createElement("div");
+          progressContainer.className = "progress-container";
+          
+          const progressBar = document.createElement("div");
+          progressBar.className = "progress-bar";
+          progressBar.id = "progress-" + i;
+          progressBar.style.width = "0%";
+          
+          const probability = document.createElement("div");
+          probability.className = "probability";
+          probability.id = "probability-" + i;
+          probability.textContent = "0%";
+          
+          progressContainer.appendChild(progressBar);
+          predictionBar.appendChild(labelName);
+          predictionBar.appendChild(progressContainer);
+          predictionBar.appendChild(probability);
+          
+          labelContainer.appendChild(predictionBar);
+        }
+        
+        document.getElementById("loader").style.display = "none";
+        updateStatus("모델이 준비되었습니다. 이미지를 업로드해주세요.");
+        
+        if (DEBUG_MODE) {
+          document.getElementById("error-log").textContent = "모델 로드 성공";
+        }
+      } catch (error) {
+        console.error("모델 로딩 오류:", error);
+        document.getElementById("loader").style.display = "none";
+        
+        // 오류 메시지 표시
+        updateStatus("모델 로딩에 실패했습니다.");
+        const errorDetails = document.getElementById("error-details");
+        errorDetails.style.display = "block";
+        errorDetails.innerHTML = `
+          <strong>오류 정보:</strong><br>
+          ${error.message}<br><br>
+          <strong>가능한 해결책:</strong><br>
+          1. 페이지를 새로고침하여 다시 시도해보세요.<br>
+          2. 모델 파일이 올바르게 업로드되었는지 확인하세요.<br>
+          3. 브라우저 캐시를 지우고 다시 시도해보세요.
+        `;
+        
+        if (DEBUG_MODE) {
+          document.getElementById("error-log").textContent = error.message;
+        }
+        
+        // 호스팅 모델로 자동 전환 (실제 배포 시 활성화)
+        if (!useHostedModel) {
+          useHostedModel = true;
+          modelURL = HOSTED_MODEL_URL + "model.json";
+          metadataURL = HOSTED_MODEL_URL + "metadata.json";
+          console.log("로컬 모델 로드 실패, 호스팅 모델로 전환 시도");
+          
+          // 잠시 후 호스팅 모델 시도
+          setTimeout(() => {
+            initModel();
+          }, 1500);
+        }
+      }
+    }
+    
+    // 이미지 미리보기 함수
+    function previewImage(input) {
+      const preview = document.getElementById("image-preview");
+      const predictButton = document.getElementById("predict-button");
+      const resultsContainer = document.getElementById("prediction-results");
+      
+      if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        
+        reader.onload = function(e) {
+          preview.src = e.target.result;
+          preview.style.display = "block";
+          
+          if (isModelLoaded) {
+            predictButton.disabled = false;
+            updateStatus("분석 버튼을 클릭하여 이미지를 분석하세요.");
+          }
+          
+          // 새 이미지가 업로드되면 이전 결과 숨기기
+          resultsContainer.style.display = "none";
+          document.getElementById("error-details").style.display = "none";
+          
+          // 이전 하이라이트 제거
+          for (let i = 0; i < maxPredictions; i++) {
+            const bar = document.getElementById("prediction-" + i);
+            if (bar) bar.classList.remove("highlight");
+          }
+        };
+        
+        reader.readAsDataURL(input.files[0]);
+      } else {
+        preview.style.display = "none";
+        predictButton.disabled = true;
+        resultsContainer.style.display = "none";
+        updateStatus("이미지를 업로드해주세요.");
+      }
+    }
+    
+    // 이미지 분석 함수
+    async function runPrediction() {
+      if (!isModelLoaded) {
+        updateStatus("모델이 로딩되지 않았습니다. 페이지를 새로고침하여 다시 시도해주세요.");
+        return;
+      }
+      
+      const imageElement = document.getElementById("image-preview");
+      if (imageElement.style.display === "none") {
+        updateStatus("이미지를 먼저 업로드해주세요.");
+        return;
+      }
+      
+      updateStatus("이미지를 분석 중입니다...");
+      document.getElementById("loader").style.display = "block";
+      document.getElementById("predict-button").disabled = true;
+      document.getElementById("error-details").style.display = "none";
+      
+      try {
+        // 이미지 예측 수행
+        const prediction = await model.predict(imageElement);
+        
+        // 최대 확률 찾기
+        let maxProb = 0;
+        let maxIndex = 0;
+        
+        // 결과 표시
+        for (let i = 0; i < maxPredictions; i++) {
+          const probability = prediction[i].probability.toFixed(2);
+          const percentage = Math.round(probability * 100);
+          
+          // 진행 막대 업데이트
+          const progressBar = document.getElementById("progress-" + i);
+          progressBar.style.width = percentage + "%";
+          
+          // 확률 텍스트 업데이트
+          const probabilityText = document.getElementById("probability-" + i);
+          probabilityText.textContent = percentage + "%";
+          
+          // 최대 확률 찾기
+          if (prediction[i].probability > maxProb) {
+            maxProb = prediction[i].probability;
+            maxIndex = i;
+          }
+        }
+        
+        // 최대 확률 하이라이트
+        for (let i = 0; i < maxPredictions; i++) {
+          const bar = document.getElementById("prediction-" + i);
+          if (i === maxIndex) {
+            bar.classList.add("highlight");
+          } else {
+            bar.classList.remove("highlight");
+          }
+        }
+        
+        // 결과 표시 컨테이너 보이기
+        document.getElementById("prediction-results").style.display = "block";
+        document.getElementById("loader").style.display = "none";
+        document.getElementById("predict-button").disabled = false;
+        updateStatus("분석이 완료되었습니다.");
+      } catch (error) {
+        console.error("예측 오류:", error);
+        document.getElementById("loader").style.display = "none";
+        document.getElementById("predict-button").disabled = false;
+        
+        // 오류 메시지 표시
+        updateStatus("이미지 분석 중 오류가 발생했습니다.");
+        const errorDetails = document.getElementById("error-details");
+        errorDetails.style.display = "block";
+        errorDetails.innerHTML = `
+          <strong>오류 정보:</strong><br>
+          ${error.message}<br><br>
+          <strong>가능한 해결책:</strong><br>
+          1. 다른 이미지를 시도해보세요.<br>
+          2. 페이지를 새로고침하고 다시 시도해보세요.
+        `;
+        
+        if (DEBUG_MODE) {
+          document.getElementById("error-log").textContent = error.message;
+        }
+      }
+    }
+    
+    // 상태 메시지 업데이트 함수
+    function updateStatus(message) {
+      document.getElementById("status-message").textContent = message;
+    }
+  </script>
+</body>
+</html>
