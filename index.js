@@ -14,9 +14,8 @@ app.use(cors());
 app.use(express.json());
 
 // 모델 로드
-let model;
 async function loadModel() {
-  model = await tf.loadLayersModel('file://./model/model.json');
+  model = await tf.loadLayersModel(`file://${__dirname}/model/model.json`);
   console.log('모델이 로드되었습니다.');
 }
 
